@@ -1,0 +1,75 @@
+===============================================================
+HƯỚNG DẪN CHẠY CHƯƠNG TRÌNH FAST GAUSSIAN BLUR
+===============================================================
+
+1. BIÊN DỊCH (COMPILE) CHƯƠNG TRÌNH
+===============================================================
+
+   Với OpenMP (khuyến nghị):
+   g++ main.cpp -o fastblur -O3 -fopenmp -std=c++17
+
+   Hoặc sử dụng Makefile:
+   make
+
+   Hoặc không có OpenMP (để test):
+   g++ main.cpp -o fastblur -O3 -std=c++17
+
+
+2. CHẠY CHƯƠNG TRÌNH
+===============================================================
+
+   Cú pháp:
+   .\fastblur.exe [input] [output] [sigma] [order] [border]
+
+   Tham số:
+   - input:  file ảnh input (jpg/png/bmp/...)
+   - output: file ảnh output muốn lưu (.png/.jpg/.bmp)
+   - sigma:  độ mờ Gaussian (float, > 0)
+   - order:  số lần blur (mặc định = 3)
+   - border: cách xử lý biên [mirror, extend, crop, wrap] (mặc định = mirror)
+
+
+3. VÍ DỤ CHẠY
+===============================================================
+
+   Ví dụ 1: Blur cơ bản với sigma=5.0
+   .\fastblur.exe test.jpg output.png 5.0
+
+   Ví dụ 2: Blur với sigma=10.0, 3 passes, border mirror
+   .\fastblur.exe test.jpg output.png 10.0 3 mirror
+
+   Ví dụ 3: Blur với sigma=2.5, 5 passes, border extend
+   .\fastblur.exe test.jpg output.png 2.5 5 extend
+
+   Ví dụ 4: Blur với sigma=15.0, border crop
+   .\fastblur.exe test.jpg output.png 15.0 3 crop
+
+   Ví dụ 5: Blur với sigma=8.0, border wrap
+   .\fastblur.exe test.jpg output.png 8.0 3 wrap
+
+
+4. CÁC FILE ẢNH TEST CÓ SẴN
+===============================================================
+
+   - test.jpg (trong thư mục gốc)
+   - data/demo.png
+   - data/box.jpg
+
+
+5. LƯU Ý
+===============================================================
+
+   - Chương trình sẽ tự động chạy và so sánh cả hai phiên bản:
+     + Có OpenMP (multi-threaded)
+     + Không có OpenMP (single-threaded)
+   
+   - Kết quả sẽ hiển thị:
+     + Thời gian chi tiết (ms và µs)
+     + Bảng so sánh hiệu năng
+     + Tốc độ tăng (speedup)
+     + Phần trăm cải thiện
+
+   - Ảnh output sẽ được lưu với kết quả từ phiên bản có OpenMP
+
+===============================================================
+

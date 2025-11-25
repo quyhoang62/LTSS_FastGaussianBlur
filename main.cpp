@@ -4,16 +4,22 @@
 // Chương trình này minh họa việc sử dụng thuật toán Fast Gaussian Blur
 // được tối ưu với song song hóa (parallelization) sử dụng OpenMP.
 //
-// SONG SONG HÓA: 
-// - Sử dụng OpenMP để tận dụng tất cả CPU cores
-// - Song song hóa theo hàng trong horizontal blur
-// - Song song hóa theo block trong transpose
-// - Tăng tốc đáng kể trên CPU đa nhân
+// Chương trình sẽ chạy và so sánh cả hai phiên bản:
+// - Có OpenMP (song song hóa)
+// - Không có OpenMP (single-threaded, dùng OMP_NUM_THREADS=1)
 //
 // ================================================================
 
 #include <iostream>
 #include <chrono>  // Để đo thời gian thực thi
+#include <iomanip>  // Để format output
+#include <string>
+#include <cmath>
+#include <cstdlib>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 // ================================================================
 // THƯ VIỆN XỬ LÝ ẢNH
@@ -26,15 +32,69 @@
 // ================================================================
 // THUẬT TOÁN FAST GAUSSIAN BLUR
 // ================================================================
-// Include header chứa implementation của Fast Gaussian Blur
-// Thuật toán này sử dụng nhiều lần box blur để xấp xỉ Gaussian blur
-// và được tối ưu với song song hóa (parallelization) sử dụng OpenMP
+// Include header với OpenMP bật (mặc định)
+#define USE_OPENMP 1
 #include "fast_gaussian_blur_template.h"
 
 typedef unsigned char uchar;         // Đặt alias uchar = unsigned char (giá trị 0–255)
 
-// #define USE_FLOAT                // Uncomment nếu muốn xử lý ảnh dạng float (0.0–1.0) thay vì uchar (0–255)
+// ================================================================
+// HÀM HIỂN THỊ THỜI GIAN CHI TIẾT
+// ================================================================
+void print_detailed_time(const std::string& label, 
+                         const std::chrono::high_resolution_clock::time_point& start,
+                         const std::chrono::high_resolution_clock::time_point& end) {
+    auto duration = end - start;
+    auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+    auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
+    auto nanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
+    
+    // Tính toán với độ chính xác cao
+    double ms = milliseconds + (microseconds % 1000) / 1000.0;
+    double us = microseconds + (nanoseconds % 1000) / 1000.0;
+    
+    std::cout << std::fixed << std::setprecision(3);
+    std::cout << "  " << std::setw(35) << std::left << label << ": ";
+    std::cout << std::setw(12) << std::right << ms << " ms  ";
+    std::cout << "(" << std::setw(12) << std::right << us << " µs)";
+    std::cout << std::endl;
+}
 
+// ================================================================
+// HÀM HIỂN THỊ KẾT QUẢ SO SÁNH
+// ================================================================
+void print_comparison_table(double time_with_omp, double time_without_omp) {
+    std::cout << "\n";
+    std::cout << "╔═══════════════════════════════════════════════════════════════════════╗\n";
+    std::cout << "║              KẾT QUẢ SO SÁNH HIỆU NĂNG                                ║\n";
+    std::cout << "╠═══════════════════════════════════════════════════════════════════════╣\n";
+    std::cout << "║  Phiên bản                    │  Thời gian (ms)  │  Tốc độ tăng     ║\n";
+    std::cout << "╠═══════════════════════════════════════════════════════════════════════╣\n";
+    
+    std::cout << std::fixed << std::setprecision(3);
+    std::cout << "║  " << std::setw(27) << std::left << "Có OpenMP (Multi-thread)" 
+              << "│  " << std::setw(15) << std::right << time_with_omp << "  │  " 
+              << std::setw(15) << std::right << "1.00x" << "  ║\n";
+    
+    std::cout << "║  " << std::setw(27) << std::left << "Không có OpenMP (Single)" 
+              << "│  " << std::setw(15) << std::right << time_without_omp << "  │  " 
+              << std::setw(15) << std::right << (time_without_omp / time_with_omp) << "x" << "  ║\n";
+    
+    double speedup = time_without_omp / time_with_omp;
+    double improvement = ((time_without_omp - time_with_omp) / time_without_omp) * 100.0;
+    double time_saved = time_without_omp - time_with_omp;
+    
+    std::cout << "╠═══════════════════════════════════════════════════════════════════════╣\n";
+    std::cout << "║  Tăng tốc: " << std::setw(10) << std::right << speedup << "x  ";
+    std::cout << "│  Cải thiện: " << std::setw(8) << std::right << improvement << "%  ";
+    std::cout << "│  Tiết kiệm: " << std::setw(8) << std::right << time_saved << " ms  ║\n";
+    std::cout << "╚═══════════════════════════════════════════════════════════════════════╝\n";
+    std::cout << "\n";
+}
+
+// ================================================================
+// HÀM CHÍNH
+// ================================================================
 int main(int argc, char * argv[])
 {   
     // Kiểm tra số lượng tham số truyền vào
@@ -60,11 +120,28 @@ int main(int argc, char * argv[])
     // stbi_load đọc file ảnh và trả về mảng pixel 1D (uchar*)
     uchar * image_data = stbi_load(argv[1], &width, &height, &channels, 0);
 
-    printf("Source image: %s %dx%d (%d)\n",
-            argv[1], width, height, channels);
-    // width  = chiều rộng
-    // height = chiều cao
-    // channels = 3 (RGB), 4 (RGBA), 1 (GRAY)...
+    if (!image_data) {
+        printf("Lỗi: Không thể load ảnh từ file %s\n", argv[1]);
+        exit(1);
+    }
+
+    printf("\n");
+    printf("╔═══════════════════════════════════════════════════════════════════════╗\n");
+    printf("║          FAST GAUSSIAN BLUR - SO SÁNH HIỆU NĂNG                       ║\n");
+    printf("╚═══════════════════════════════════════════════════════════════════════╝\n");
+    printf("\n");
+    printf("Source image: %s\n", argv[1]);
+    printf("Kích thước: %dx%d pixels (%d channels)\n", width, height, channels);
+    printf("Tổng số pixels: %d\n", width * height);
+    printf("Tổng kích thước: %.2f MB\n", (width * height * channels) / (1024.0 * 1024.0));
+    
+#ifdef _OPENMP
+    int max_threads = omp_get_max_threads();
+    printf("OpenMP: Có sẵn (Max threads: %d)\n", max_threads);
+#else
+    printf("OpenMP: Không có sẵn (sẽ chạy single-threaded)\n");
+#endif
+    printf("\n");
 
     // =====================
     // 2) ĐỌC THAM SỐ
@@ -84,90 +161,107 @@ int main(int argc, char * argv[])
     else if (policy == "wrap")      border = Border::kWrap;
     else                            border = Border::kMirror; // Default
 
+    printf("Tham số xử lý:\n");
+    printf("  - Sigma: %.2f\n", sigma);
+    printf("  - Passes: %d\n", passes);
+    printf("  - Border policy: %s\n", policy.c_str());
+    printf("\n");
+
     // =====================
-    // 3) TẠO BỘ ĐỆM (BUFFER)
+    // 3) TẠO BỘ ĐỆM (BUFFER) CHO CẢ HAI PHIÊN BẢN
     // =====================
 
     std::size_t size = width * height * channels; // số phần tử pixel tổng cộng
 
-#ifdef USE_FLOAT
-    // Nếu xử lý bằng float
-    float * new_image = new float[size];
-    float * old_image = new float[size];
-#else
-    // Nếu xử lý 8-bit (uchar)
-    uchar * new_image = new uchar[size];
-    uchar * old_image = new uchar[size];
-#endif
+    // Buffer cho phiên bản có OpenMP (multi-threaded)
+    uchar * new_image_omp = new uchar[size];
+    uchar * old_image_omp = new uchar[size];
+    
+    // Buffer cho phiên bản không có OpenMP (single-threaded)
+    uchar * new_image_no_omp = new uchar[size];
+    uchar * old_image_no_omp = new uchar[size];
 
     // =====================
-    // 4) COPY DỮ LIỆU ẢNH VÀO old_image
+    // 4) COPY DỮ LIỆU ẢNH VÀO BUFFER
     // =====================
 
     for(std::size_t i = 0; i < size; ++i)
     {
-#ifdef USE_FLOAT
-        // Chuyển pixel uchar (0–255) về float (0–1)
-        old_image[i] = (float)image_data[i] / 255.f;
-#else
-        // Dùng thẳng giá trị pixel 8-bit
-        old_image[i] = image_data[i];
-#endif
+        old_image_omp[i] = image_data[i];
+        old_image_no_omp[i] = image_data[i];
     }
 
     // =====================
-    // 5) BẮT ĐẦU ĐO THỜI GIAN
+    // 5) CHẠY PHIÊN BẢN CÓ OPENMP (MULTI-THREADED)
     // =====================
-    auto start = std::chrono::system_clock::now(); 
-
-    // =====================
-    // 6) THỰC HIỆN GAUSSIAN BLUR
-    // =====================
-
-    // Hàm fast_gaussian_blur thực hiện Fast Gaussian Blur với song song hóa (parallelization):
-    // 
-    // Thuật toán chính:
-    // - Tính bán kính box từ sigma (sử dụng công thức tối ưu)
-    // - Blur ngang nhiều lần (N passes) - MỖI PASS ĐƯỢC SONG SONG HÓA
-    // - Transpose ảnh (chuyển vị) - CŨNG ĐƯỢC SONG SONG HÓA
-    // - Blur ngang lần nữa (thực chất là blur dọc trên ảnh gốc) - MỖI PASS ĐƯỢC SONG SONG HÓA
-    // - Transpose lại để trả về dạng ban đầu - CŨNG ĐƯỢC SONG SONG HÓA
-    //
-    // SONG SONG HÓA (PARALLELIZATION):
-    // - Việc song song hóa được thực hiện BÊN TRONG hàm fast_gaussian_blur
-    // - Sử dụng OpenMP (#pragma omp parallel for) để song song hóa:
-    //   * horizontal_blur: mỗi hàng (row) được xử lý bởi một thread riêng
-    //   * flip_block: mỗi block được xử lý song song với collapse(2)
-    // - Tự động tận dụng tất cả CPU cores có sẵn
-    // - Tăng tốc đáng kể trên CPU đa nhân (multi-core)
-    // - Để sử dụng song song hóa, cần compile với flag -fopenmp (GCC/Clang) hoặc /openmp (MSVC)
-    //
-    // Lưu ý: Các buffer old_image và new_image sẽ được swap nhiều lần trong quá trình xử lý
-    fast_gaussian_blur(old_image, new_image,
+    printf("╔═══════════════════════════════════════════════════════════════════════╗\n");
+    printf("║  PHIÊN BẢN CÓ OPENMP (Song song hóa - Multi-threaded)                ║\n");
+    printf("╚═══════════════════════════════════════════════════════════════════════╝\n");
+    
+#ifdef _OPENMP
+    // Đảm bảo sử dụng tất cả threads có sẵn
+    omp_set_num_threads(omp_get_max_threads());
+    printf("Số threads: %d\n", omp_get_max_threads());
+#else
+    printf("OpenMP không có sẵn, chạy single-threaded\n");
+#endif
+    printf("\n");
+    
+    auto start_omp = std::chrono::high_resolution_clock::now();
+    
+    fast_gaussian_blur(old_image_omp, new_image_omp,
                        width, height, channels,
                        sigma, passes, border);
+    
+    auto end_omp = std::chrono::high_resolution_clock::now();
+    auto duration_omp = end_omp - start_omp;
+    double time_omp_ms = std::chrono::duration_cast<std::chrono::microseconds>(duration_omp).count() / 1000.0;
+    
+    print_detailed_time("Tổng thời gian xử lý", start_omp, end_omp);
+    printf("\n");
 
     // =====================
-    // 7) KẾT THÚC ĐO THỜI GIAN
+    // 6) CHẠY PHIÊN BẢN KHÔNG CÓ OPENMP (SINGLE-THREADED)
     // =====================
-    auto end = std::chrono::system_clock::now();
-    float elapsed = std::chrono::duration_cast<std::chrono::milliseconds>
-                        (end-start).count();
+    printf("╔═══════════════════════════════════════════════════════════════════════╗\n");
+    printf("║  PHIÊN BẢN KHÔNG CÓ OPENMP (Single-threaded)                         ║\n");
+    printf("╚═══════════════════════════════════════════════════════════════════════╝\n");
+    
+#ifdef _OPENMP
+    // Đặt số threads = 1 để mô phỏng single-threaded
+    omp_set_num_threads(1);
+    printf("Số threads: 1 (single-threaded)\n");
+#else
+    printf("OpenMP không có sẵn, đã chạy single-threaded\n");
+#endif
+    printf("\n");
+    
+    auto start_no_omp = std::chrono::high_resolution_clock::now();
+    
+    fast_gaussian_blur(old_image_no_omp, new_image_no_omp,
+                       width, height, channels,
+                       sigma, passes, border);
+    
+    auto end_no_omp = std::chrono::high_resolution_clock::now();
+    auto duration_no_omp = end_no_omp - start_no_omp;
+    double time_no_omp_ms = std::chrono::duration_cast<std::chrono::microseconds>(duration_no_omp).count() / 1000.0;
+    
+    print_detailed_time("Tổng thời gian xử lý", start_no_omp, end_no_omp);
+    printf("\n");
 
-    printf("Time %.4fms\n", elapsed);   // In thời gian xử lý blur
+    // =====================
+    // 7) HIỂN THỊ KẾT QUẢ SO SÁNH
+    // =====================
+    print_comparison_table(time_omp_ms, time_no_omp_ms);
 
     // =====================
     // 8) COPY KẾT QUẢ BLUR VỀ image_data ĐỂ LƯU FILE
+    // (Sử dụng kết quả từ phiên bản có OpenMP)
     // =====================
 
     for(std::size_t i = 0; i < size; ++i)
     {
-#ifdef USE_FLOAT
-        // scale float 0–1 về lại 0–255
-        image_data[i] = (uchar)(new_image[i] * 255.f);
-#else
-        image_data[i] = (uchar)(new_image[i]);  // copy trực tiếp
-#endif
+        image_data[i] = (uchar)(new_image_omp[i]);
     }
 
     // =====================
@@ -192,14 +286,19 @@ int main(int argc, char * argv[])
         stbi_write_png(file.c_str(), width, height, channels,
                        image_data, channels * width); // stride = width*channels
     }
+    
+    printf("Đã lưu ảnh kết quả vào: %s\n", argv[2]);
+    printf("\n");
 
     // =====================
     // 10) GIẢI PHÓNG BỘ NHỚ
     // =====================
 
     stbi_image_free(image_data);   // Giải phóng ảnh load từ file
-    delete[] new_image;            // Giải phóng buffer kết quả
-    delete[] old_image;            // Giải phóng buffer input
+    delete[] new_image_omp;         // Giải phóng buffer kết quả
+    delete[] old_image_omp;         // Giải phóng buffer input
+    delete[] new_image_no_omp;      // Giải phóng buffer kết quả
+    delete[] old_image_no_omp;      // Giải phóng buffer input
 
     return 0;
 }

@@ -8,6 +8,28 @@
 #pragma once
 
 // ================================================================
+// MACRO ĐIỀU KHIỂN OPENMP
+// ================================================================
+// Định nghĩa macro này trước khi include header để bật/tắt OpenMP
+// Mặc định: nếu không định nghĩa, sẽ sử dụng OpenMP nếu có sẵn
+#ifndef USE_OPENMP
+    #ifdef _OPENMP
+        #define USE_OPENMP 1
+    #else
+        #define USE_OPENMP 0
+    #endif
+#endif
+
+// Macro helper để điều kiện hóa pragma OpenMP
+#if USE_OPENMP
+    #define OMP_PARALLEL_FOR _Pragma("omp parallel for")
+    #define OMP_PARALLEL_FOR_COLLAPSE_2 _Pragma("omp parallel for collapse(2)")
+#else
+    #define OMP_PARALLEL_FOR
+    #define OMP_PARALLEL_FOR_COLLAPSE_2
+#endif
+
+// ================================================================
 // TỔNG QUAN VỀ SONG SONG HÓA (PARALLELIZATION) TRONG CODE NÀY
 // ================================================================
 //
@@ -239,7 +261,7 @@ inline void horizontal_blur_extend(const T * in, T * out, const int w, const int
     // Lưu ý: Cần compile với flag -fopenmp (GCC/Clang) hoặc /openmp (MSVC)
     //        và link với thư viện OpenMP
     // ================================================================
-    #pragma omp parallel for
+    OMP_PARALLEL_FOR
     for(int i=0; i<h; i++)  // Duyệt qua từng hàng của ảnh 
     {
         // Tính chỉ số bắt đầu và kết thúc của hàng hiện tại trong buffer 1D
@@ -423,7 +445,7 @@ inline void horizontal_blur_kernel_crop(const T * in, T * out, const int w, cons
     // SONG SONG HÓA: Tương tự như horizontal_blur_extend
     // Mỗi thread xử lý một nhóm hàng độc lập, tăng tốc trên CPU đa nhân
     // ================================================================
-    #pragma omp parallel for
+    OMP_PARALLEL_FOR
     for(int i=0; i<h; i++)  // Duyệt qua từng hàng của ảnh
     {
         const int begin = i*w;
@@ -554,7 +576,7 @@ inline void horizontal_blur_mirror(const T* in, T* out, const int w, const int h
     // SONG SONG HÓA: Mỗi hàng được xử lý song song bởi các threads khác nhau
     // Thread pool được quản lý tự động bởi OpenMP runtime
     // ================================================================
-    #pragma omp parallel for
+    OMP_PARALLEL_FOR
     for (int i = 0; i < h; i++)  // Duyệt qua từng hàng của ảnh
     {
         const int begin = i*w;
@@ -704,7 +726,7 @@ inline void horizontal_blur_wrap(const T* in, T* out, const int w, const int h, 
     // Mỗi thread xử lý một tập hợp hàng độc lập, không có race condition
     // vì mỗi hàng được ghi vào vùng nhớ riêng biệt
     // ================================================================
-    #pragma omp parallel for
+    OMP_PARALLEL_FOR
     for(int i=0; i<h; i++)  // Duyệt qua từng hàng của ảnh 
     {
         const int begin = i*w;
@@ -848,7 +870,7 @@ inline void flip_block(const T * in, T * out, const int w, const int h)
     //
     // Lưu ý: Cần compile với -fopenmp và link với OpenMP library
     // ================================================================
-    #pragma omp parallel for collapse(2)
+    OMP_PARALLEL_FOR_COLLAPSE_2
     for(int x= 0; x < w; x+= block)     // Duyệt theo block theo chiều ngang
     for(int y= 0; y < h; y+= block)     // Duyệt theo block theo chiều dọc
     {
